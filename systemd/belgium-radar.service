@@ -1,0 +1,17 @@
+[Unit]
+Description=Belgium Weather & Lightning Radar Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=belgium-radar
+Group=belgium-radar
+WorkingDirectory=/opt/belgium-radar/app
+Environment=PORT=8080
+ExecStart=/opt/belgium-radar/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
