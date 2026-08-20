@@ -1,4 +1,11 @@
-import { fetchJson, wmoIcon, wmoLabel, windDir, formatTime, formatDay } from "./utils.js";
+import { fetchJson, wmoIcon, wmoLabel, windDir, formatTime, formatDay } from "./utils.js?v=4";
+
+function normalize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
 export class WeatherPanel {
   constructor(cities, { onLocationChange } = {}) {
@@ -9,38 +16,44 @@ export class WeatherPanel {
     this.searchInput = document.getElementById("city-search");
     this.suggestionsEl = document.getElementById("city-suggestions");
     this.locationLabel = document.getElementById("weather-location");
-    this.selectEl = document.getElementById("city-select");
 
     this.debounceTimer = null;
+    this.requestId = 0;
     this.suppressBlur = false;
 
-    this.populateSelect();
+    if (!this.searchInput || !this.suggestionsEl) {
+      console.error("City search elements missing from DOM");
+      return;
+    }
+
     this.bindSearch();
     this.setLocationLabel(this.selected.name);
-  }
-
-  populateSelect() {
-    if (!this.selectEl) return;
-    this.selectEl.innerHTML = this.cities
-      .map((c) => `<option value="${c.name}">${c.name}</option>`)
-      .join("");
-    this.selectEl.addEventListener("change", () => {
-      const idx = this.selectEl.selectedIndex;
-      this.selectLocation(this.cities[idx]);
-    });
+    this.searchInput.value = this.selected.name;
   }
 
   bindSearch() {
-    if (!this.searchInput) return;
+    this.searchInput.addEventListener("focus", () => {
+      const q = this.searchInput.value.trim();
+      if (q.length >= 1) this.search(q);
+      else this.showSuggestions(this.cities.slice(0, 8).map((c) => ({
+        ...c,
+        label: c.name,
+      })));
+    });
 
     this.searchInput.addEventListener("input", () => {
       clearTimeout(this.debounceTimer);
       const q = this.searchInput.value.trim();
-      if (q.length < 2) {
-        this.hideSuggestions();
+      if (q.length < 1) {
+        this.showSuggestions(this.cities.slice(0, 8).map((c) => ({
+          ...c,
+          label: c.name,
+        })));
         return;
       }
-      this.debounceTimer = setTimeout(() => this.search(q), 220);
+      // Instant local matches, then enrich with geocode.
+      this.showLocalMatches(q);
+      this.debounceTimer = setTimeout(() => this.search(q), 180);
     });
 
     this.searchInput.addEventListener("keydown", (event) => {
@@ -50,7 +63,7 @@ export class WeatherPanel {
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const first = this.suggestionsEl?.querySelector("[data-lat]");
+        const first = this.suggestionsEl.querySelector("[data-lat]");
         if (first) first.click();
       }
     });
@@ -58,61 +71,91 @@ export class WeatherPanel {
     this.searchInput.addEventListener("blur", () => {
       setTimeout(() => {
         if (!this.suppressBlur) this.hideSuggestions();
-      }, 150);
+      }, 180);
+    });
+
+    // Keep clicks inside the suggestion list from losing focus too early.
+    this.suggestionsEl.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      this.suppressBlur = true;
     });
   }
 
+  showLocalMatches(query) {
+    const q = normalize(query);
+    const local = this.cities
+      .filter((c) => normalize(c.name).includes(q))
+      .map((c) => ({ ...c, label: c.name }));
+    if (local.length) this.showSuggestions(local.slice(0, 8));
+  }
+
   async search(query) {
-    const local = this.cities.filter((c) =>
-      c.name.toLowerCase().includes(query.toLowerCase()),
-    );
+    const requestId = ++this.requestId;
+    const q = normalize(query);
+
+    const local = this.cities
+      .filter((c) => normalize(c.name).includes(q))
+      .map((c) => ({ ...c, label: c.name }));
 
     let remote = [];
+    let geocodeError = null;
     try {
       const data = await fetchJson(`/api/geocode?q=${encodeURIComponent(query)}`);
       remote = (data.results ?? []).map((r) => ({
         name: r.name,
-        label: [r.name, r.admin1, r.country_code].filter(Boolean).join(", "),
+        label: [r.name, r.admin1, r.country_code || r.country].filter(Boolean).join(", "),
         lat: r.latitude,
         lon: r.longitude,
       }));
     } catch (err) {
+      geocodeError = err;
       console.warn("Geocode failed:", err);
     }
 
+    if (requestId !== this.requestId) return;
+
     const seen = new Set();
     const merged = [];
-    for (const item of [...local.map((c) => ({ ...c, label: c.name })), ...remote]) {
-      const key = `${item.name}|${item.lat.toFixed(2)}|${item.lon.toFixed(2)}`;
+    for (const item of [...local, ...remote]) {
+      if (item.lat == null || item.lon == null) continue;
+      const key = `${normalize(item.name)}|${Number(item.lat).toFixed(2)}|${Number(item.lon).toFixed(2)}`;
       if (seen.has(key)) continue;
       seen.add(key);
       merged.push(item);
     }
 
+    if (!merged.length && geocodeError) {
+      this.showSuggestions([], "Search unavailable — try Brussels, Ghent, Liège…");
+      return;
+    }
+
     this.showSuggestions(merged.slice(0, 8));
   }
 
-  showSuggestions(items) {
-    if (!this.suggestionsEl) return;
+  showSuggestions(items, emptyMessage = "No cities found") {
     if (!items.length) {
-      this.suggestionsEl.innerHTML = `<div class="city-suggestion empty">No cities found</div>`;
+      this.suggestionsEl.innerHTML =
+        `<div class="city-suggestion empty">${emptyMessage}</div>`;
       this.suggestionsEl.hidden = false;
       return;
     }
 
-    this.suggestionsEl.innerHTML = items.map((item) => `
-      <button type="button" class="city-suggestion"
-        data-name="${item.name}"
-        data-lat="${item.lat}"
-        data-lon="${item.lon}"
-        data-label="${item.label || item.name}">
-        <span class="city-suggestion-name">${item.label || item.name}</span>
-      </button>
-    `).join("");
+    this.suggestionsEl.innerHTML = items.map((item) => {
+      const label = item.label || item.name;
+      return `
+        <button type="button" class="city-suggestion"
+          data-name="${escapeAttr(item.name)}"
+          data-lat="${item.lat}"
+          data-lon="${item.lon}"
+          data-label="${escapeAttr(label)}">
+          <span class="city-suggestion-name">${escapeHtml(label)}</span>
+        </button>
+      `;
+    }).join("");
 
     this.suggestionsEl.hidden = false;
+
     this.suggestionsEl.querySelectorAll(".city-suggestion[data-lat]").forEach((btn) => {
-      btn.addEventListener("mousedown", () => { this.suppressBlur = true; });
       btn.addEventListener("click", () => {
         this.selectLocation({
           name: btn.dataset.name,
@@ -123,14 +166,15 @@ export class WeatherPanel {
         this.searchInput.value = btn.dataset.name;
         this.hideSuggestions();
         this.suppressBlur = false;
+        this.searchInput.blur();
       });
     });
   }
 
   hideSuggestions() {
-    if (!this.suggestionsEl) return;
     this.suggestionsEl.hidden = true;
     this.suggestionsEl.innerHTML = "";
+    this.suppressBlur = false;
   }
 
   setLocationLabel(text) {
@@ -140,10 +184,6 @@ export class WeatherPanel {
   selectLocation(location) {
     this.selected = location;
     this.setLocationLabel(location.label || location.name);
-    if (this.selectEl) {
-      const idx = this.cities.findIndex((c) => c.name === location.name);
-      if (idx >= 0) this.selectEl.selectedIndex = idx;
-    }
     this.onLocationChange?.(location);
     this.refresh();
   }
@@ -232,4 +272,19 @@ export class WeatherPanel {
     this.refresh();
     setInterval(() => this.refresh(), 10 * 60 * 1000);
   }
+}
+
+function escapeAttr(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

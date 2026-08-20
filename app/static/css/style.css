@@ -49,6 +49,7 @@ a:hover { text-decoration: underline; }
     "topbar topbar"
     "sidebar map";
   height: 100vh;
+  overflow: visible;
 }
 
 .topbar {
@@ -57,7 +58,9 @@ a:hover { text-decoration: underline; }
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  z-index: 1000;
+  z-index: 3000;
+  position: relative;
+  overflow: visible;
   border-radius: 0;
   border-top: none;
   border-left: none;
@@ -69,9 +72,10 @@ a:hover { text-decoration: underline; }
 .city-search-wrap {
   position: relative;
   flex: 1;
-  max-width: 280px;
-  min-width: 160px;
+  max-width: 320px;
+  min-width: 180px;
   margin: 0 12px;
+  z-index: 3100;
 }
 
 .city-search-label {
@@ -115,14 +119,18 @@ a:hover { text-decoration: underline; }
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 1200;
-  background: var(--bg-panel-solid);
+  z-index: 4000;
+  background: #0f1a28;
   border: 1px solid var(--border-bright);
   border-radius: 12px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   overflow: hidden;
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
+}
+
+.city-suggestions[hidden] {
+  display: none !important;
 }
 
 .city-suggestion {

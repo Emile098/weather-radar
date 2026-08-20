@@ -1,7 +1,7 @@
-import { fetchJson } from "./utils.js";
-import { RadarLayer } from "./radar.js";
-import { LightningLayer } from "./lightning.js";
-import { WeatherPanel } from "./weather.js";
+import { fetchJson } from "./utils.js?v=4";
+import { RadarLayer } from "./radar.js?v=4";
+import { LightningLayer } from "./lightning.js?v=4";
+import { WeatherPanel } from "./weather.js?v=4";
 
 async function main() {
   const config = await fetchJson("/api/config");
