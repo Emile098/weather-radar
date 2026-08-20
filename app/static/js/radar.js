@@ -1,4 +1,4 @@
-import { fetchJson } from "./utils.js?v=7";
+import { fetchJson } from "./utils.js?v=8";
 
 const REFRESH_MS = 2 * 60 * 1000;
 const STORAGE_KEY = "belgium-radar-source";
@@ -8,7 +8,7 @@ export class RadarLayer {
     this.map = map;
     this.onFrameChange = onFrameChange;
     this.onSourceChange = onSourceChange;
-    this.sourceId = localStorage.getItem(STORAGE_KEY) || "rainviewer";
+    this.sourceId = localStorage.getItem(STORAGE_KEY) || "knmi";
     this.manifest = null;
     this.frames = [];
     this.currentLayer = null;
@@ -86,21 +86,22 @@ export class RadarLayer {
       });
     }
 
-    if (provider === "dwd") {
+    if (provider === "wms" || provider === "dwd" || provider === "knmi") {
       const wms = this.manifest.wms;
       const iso = new Date(frame.time * 1000).toISOString().slice(0, 19) + "Z";
       return L.tileLayer.wms(wms.url, {
         layers: wms.layers,
-        format: wms.format,
-        transparent: wms.transparent,
-        version: wms.version,
+        styles: wms.styles || "",
+        format: wms.format || "image/png",
+        transparent: wms.transparent !== false,
+        version: wms.version || "1.3.0",
         opacity: this.opacity,
         time: iso,
         uppercase: true,
         maxZoom: 12,
         zIndex: 200,
         className: "radar-tiles",
-        attribution: "DWD",
+        attribution: this.manifest.attribution || "",
       });
     }
 

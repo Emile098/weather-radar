@@ -1,7 +1,7 @@
-import { fetchJson } from "./utils.js?v=7";
-import { RadarLayer } from "./radar.js?v=7";
-import { LightningLayer } from "./lightning.js?v=7";
-import { WeatherPanel } from "./weather.js?v=7";
+import { fetchJson } from "./utils.js?v=8";
+import { RadarLayer } from "./radar.js?v=8";
+import { LightningLayer } from "./lightning.js?v=8";
+import { WeatherPanel } from "./weather.js?v=8";
 
 async function main() {
   const config = await fetchJson("/api/config");
@@ -10,7 +10,7 @@ async function main() {
     bounds,
     cities,
     radarSources = [],
-    defaultRadarSource = "rainviewer",
+    defaultRadarSource = "knmi",
   } = config;
 
   const map = L.map("map", {

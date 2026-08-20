@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -48,23 +49,77 @@ BELGIUM = {
 }
 
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "").strip()
+RAINVIEWER_MAPS = "https://api.rainviewer.com/public/weather-maps.json"
+KNMI_WMS = "https://geoservices.knmi.nl/wms"
+DWD_WMS = "https://maps.dwd.de/geoserver/dwd/wms"
+DEFAULT_RADAR_SOURCE = "knmi"
+RAINVIEWER_PROBE_TTL = 300.0
+
+# (checked_at, available, reason)
+_rv_health: tuple[float, bool, str] | None = None
 
 
-def radar_sources() -> list[dict]:
+def _wms_time_frames(hours: float = 2.0, step_min: int = 5) -> list[dict[str, Any]]:
+    now = int(time.time())
+    step = step_min * 60
+    end = (now // step) * step - step
+    count = max(1, int((hours * 3600) / step))
+    return [{"time": end - i * step, "kind": "observed"} for i in range(count - 1, -1, -1)]
+
+
+async def probe_rainviewer_tiles(client: httpx.AsyncClient) -> tuple[bool, str]:
+    """RainViewer often publishes a catalog while CDN tile paths return 404/410."""
+    global _rv_health
+    if _rv_health and time.time() - _rv_health[0] < RAINVIEWER_PROBE_TTL:
+        return _rv_health[1], _rv_health[2]
+
+    try:
+        response = await client.get(RAINVIEWER_MAPS, headers={"Accept": "application/json"})
+        if response.status_code != 200:
+            result = (False, f"catalog HTTP {response.status_code}")
+        else:
+            data = response.json()
+            host = str(data.get("host", "")).rstrip("/")
+            past = data.get("radar", {}).get("past") or []
+            if not host or not past:
+                result = (False, "empty RainViewer catalog")
+            else:
+                path = past[-1]["path"]
+                tile = f"{host}{path}/256/2/1/1/2/1_1.png"
+                tile_resp = await client.get(tile)
+                ok = tile_resp.status_code == 200 and len(tile_resp.content) > 200
+                result = (
+                    (True, "OK")
+                    if ok
+                    else (
+                        False,
+                        f"tiles unavailable ({tile_resp.status_code}) — RainViewer CDN currently broken",
+                    )
+                )
+    except Exception as exc:  # noqa: BLE001
+        result = (False, f"probe failed: {exc}")
+
+    _rv_health = (time.time(), result[0], result[1])
+    return result
+
+
+async def radar_sources(client: httpx.AsyncClient | None = None) -> list[dict]:
+    own_client = client is None
+    if own_client:
+        client = httpx.AsyncClient(timeout=15.0, follow_redirects=True)
+    assert client is not None
+    try:
+        rv_ok, rv_reason = await probe_rainviewer_tiles(client)
+    finally:
+        if own_client:
+            await client.aclose()
+
     sources = [
         {
-            "id": "rainviewer",
-            "name": "RainViewer",
-            "short": "Global",
-            "description": "Global radar composite · ~10 min steps · best Belgium coverage",
-            "animated": True,
-            "available": True,
-        },
-        {
-            "id": "rainviewer_forecast",
-            "name": "RainViewer + Forecast",
-            "short": "RV+FC",
-            "description": "RainViewer history plus nowcast frames when available",
+            "id": "knmi",
+            "name": "KNMI Benelux",
+            "short": "KNMI",
+            "description": "Official Dutch radar composite — best coverage for Belgium",
             "animated": True,
             "available": True,
         },
@@ -75,6 +130,24 @@ def radar_sources() -> list[dict]:
             "description": "Deutscher Wetterdienst precipitation · strong for east Belgium / border storms",
             "animated": True,
             "available": True,
+        },
+        {
+            "id": "rainviewer",
+            "name": "RainViewer",
+            "short": "Global",
+            "description": "Global radar composite · ~10 min steps"
+            + ("" if rv_ok else f" · {rv_reason}"),
+            "animated": True,
+            "available": rv_ok,
+        },
+        {
+            "id": "rainviewer_forecast",
+            "name": "RainViewer + Forecast",
+            "short": "RV+FC",
+            "description": "RainViewer history plus nowcast frames when available"
+            + ("" if rv_ok else f" · {rv_reason}"),
+            "animated": True,
+            "available": rv_ok,
         },
         {
             "id": "owm",
@@ -89,7 +162,14 @@ def radar_sources() -> list[dict]:
     return sources
 
 
-app = FastAPI(title="Belgium Radar Dashboard", version="1.1.0")
+def pick_default_source(sources: list[dict]) -> str:
+    for candidate in ("knmi", "dwd", "rainviewer", "owm"):
+        if any(s["id"] == candidate and s.get("available") for s in sources):
+            return candidate
+    return DEFAULT_RADAR_SOURCE
+
+
+app = FastAPI(title="Belgium Radar Dashboard", version="1.2.0")
 
 
 @app.get("/api/health")
@@ -99,37 +179,60 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/config")
 async def config() -> dict:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        sources = await radar_sources(client)
     payload = dict(BELGIUM)
-    payload["radarSources"] = radar_sources()
-    payload["defaultRadarSource"] = "rainviewer"
+    payload["radarSources"] = sources
+    payload["defaultRadarSource"] = pick_default_source(sources)
     return payload
 
 
 @app.get("/api/radar/sources")
 async def list_radar_sources() -> dict:
-    return {"sources": radar_sources(), "default": "rainviewer"}
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        sources = await radar_sources(client)
+    return {"sources": sources, "default": pick_default_source(sources)}
 
 
 @app.get("/api/rainviewer")
 async def rainviewer_proxy() -> dict:
     """Proxy RainViewer manifest to avoid browser CORS issues."""
-    url = "https://api.rainviewer.com/public/weather-maps.json"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(url, headers={"Accept": "application/json"})
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        response = await client.get(RAINVIEWER_MAPS, headers={"Accept": "application/json"})
     if response.status_code != 200:
         raise HTTPException(status_code=502, detail="RainViewer API unavailable")
     return response.json()
 
 
 @app.get("/api/radar/manifest")
-async def radar_manifest(source: str = "rainviewer") -> dict:
+async def radar_manifest(source: str = DEFAULT_RADAR_SOURCE) -> dict:
     """Normalized radar frame manifest for the selected source."""
     source = source.strip().lower()
 
+    if source == "knmi":
+        return {
+            "source": "knmi",
+            "provider": "wms",
+            "animated": True,
+            "wms": {
+                "url": "/api/radar/wms/knmi",
+                "layers": "RAD_NL25_PCP_CM",
+                "styles": "precip-blue-transparent/nearest",
+                "format": "image/png",
+                "transparent": True,
+                "version": "1.3.0",
+            },
+            "frames": _wms_time_frames(hours=2.0, step_min=5),
+            "attribution": "KNMI",
+            "note": "KNMI Benelux radar — best Belgium / Low Countries coverage",
+        }
+
     if source in {"rainviewer", "rainviewer_forecast"}:
-        url = "https://api.rainviewer.com/public/weather-maps.json"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(url, headers={"Accept": "application/json"})
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            rv_ok, rv_reason = await probe_rainviewer_tiles(client)
+            if not rv_ok:
+                raise HTTPException(status_code=503, detail=rv_reason)
+            response = await client.get(RAINVIEWER_MAPS, headers={"Accept": "application/json"})
         if response.status_code != 200:
             raise HTTPException(status_code=502, detail="RainViewer API unavailable")
         data = response.json()
@@ -164,26 +267,19 @@ async def radar_manifest(source: str = "rainviewer") -> dict:
         }
 
     if source == "dwd":
-        # 5-minute cadence; last ~2 hours of observed frames.
-        now = int(time.time())
-        step = 5 * 60
-        end = (now // step) * step - step
-        frames = []
-        for i in range(23, -1, -1):
-            ts = end - i * step
-            frames.append({"time": ts, "kind": "observed"})
         return {
             "source": "dwd",
-            "provider": "dwd",
+            "provider": "wms",
             "animated": True,
             "wms": {
-                "url": "https://maps.dwd.de/geoserver/dwd/wms",
+                "url": "/api/radar/wms/dwd",
                 "layers": "dwd:Niederschlagsradar",
+                "styles": "",
                 "format": "image/png",
                 "transparent": True,
                 "version": "1.3.0",
             },
-            "frames": frames,
+            "frames": _wms_time_frames(hours=2.0, step_min=5),
             "attribution": "DWD",
             "note": "German radar network — strongest near eastern Belgium / borders",
         }
@@ -206,6 +302,46 @@ async def radar_manifest(source: str = "rainviewer") -> dict:
         }
 
     raise HTTPException(status_code=400, detail=f"Unknown radar source: {source}")
+
+
+@app.get("/api/radar/wms/{provider}")
+async def radar_wms_proxy(provider: str, request: Request) -> Response:
+    """Proxy WMS GetMap so browsers avoid CORS/quirks and we can pin DATASET/layers."""
+    params = {k: v for k, v in request.query_params.multi_items()}
+    provider = provider.strip().lower()
+
+    if provider == "knmi":
+        upstream = KNMI_WMS
+        params.setdefault("DATASET", "RADAR")
+        params.setdefault("LAYERS", "RAD_NL25_PCP_CM")
+        params.setdefault("STYLES", "precip-blue-transparent/nearest")
+    elif provider == "dwd":
+        upstream = DWD_WMS
+        params.setdefault("LAYERS", "dwd:Niederschlagsradar")
+        params.setdefault("STYLES", "")
+    else:
+        raise HTTPException(status_code=404, detail=f"Unknown WMS provider: {provider}")
+
+    params.setdefault("SERVICE", "WMS")
+    params.setdefault("VERSION", "1.3.0")
+    params.setdefault("REQUEST", "GetMap")
+    params.setdefault("FORMAT", "image/png")
+    params.setdefault("TRANSPARENT", "true")
+    params.setdefault("CRS", "EPSG:3857")
+
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        try:
+            response = await client.get(upstream, params=params)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"WMS upstream error: {exc}") from exc
+
+    content_type = response.headers.get("content-type", "image/png")
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=60"},
+    )
 
 
 @app.get("/api/radar/owm/{z}/{x}/{y}.png")
