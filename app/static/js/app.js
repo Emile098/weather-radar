@@ -1,7 +1,7 @@
-import { fetchJson } from "./utils.js?v=4";
-import { RadarLayer } from "./radar.js?v=4";
-import { LightningLayer } from "./lightning.js?v=4";
-import { WeatherPanel } from "./weather.js?v=4";
+import { fetchJson } from "./utils.js?v=5";
+import { RadarLayer } from "./radar.js?v=5";
+import { LightningLayer } from "./lightning.js?v=5";
+import { WeatherPanel } from "./weather.js?v=5";
 
 async function main() {
   const config = await fetchJson("/api/config");
@@ -16,10 +16,12 @@ async function main() {
     attributionControl: true,
   });
 
+  L.control.zoom({ position: "topright" });
+
   L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://carto.com/">CARTO</a>',
       subdomains: "abcd",
       maxZoom: 19,
     },
@@ -28,18 +30,19 @@ async function main() {
   map.fitBounds([
     [bounds.south, bounds.west],
     [bounds.north, bounds.east],
-  ]);
+  ], { padding: [24, 24] });
 
   const cityLayer = L.layerGroup();
   let selectedMarker = null;
+
   for (const city of cities) {
     L.circleMarker([city.lat, city.lon], {
-      radius: 5,
+      radius: 4,
       fillOpacity: 1,
       stroke: true,
-      weight: 2,
-      color: "#fff",
-      fillColor: "#3b9eff",
+      weight: 1.5,
+      color: "rgba(255,255,255,0.9)",
+      fillColor: "#56c2b0",
       interactive: false,
     }).addTo(cityLayer);
     L.marker([city.lat, city.lon], {
@@ -69,7 +72,7 @@ async function main() {
   function updateStatus() {
     if (radarOnline && lightningOnline) {
       statusEl.className = "status-pill online";
-      statusEl.querySelector(".status-text").textContent = "All systems live";
+      statusEl.querySelector(".status-text").textContent = "Systems live";
     } else if (radarOnline) {
       statusEl.className = "status-pill online";
       statusEl.querySelector(".status-text").textContent = "Radar live";
@@ -78,7 +81,7 @@ async function main() {
       statusEl.querySelector(".status-text").textContent = "Lightning live";
     } else {
       statusEl.className = "status-pill offline";
-      statusEl.querySelector(".status-text").textContent = "Reconnecting…";
+      statusEl.querySelector(".status-text").textContent = "Reconnecting";
     }
   }
 
@@ -113,7 +116,7 @@ async function main() {
     east: bounds.east,
   }, (online, count) => {
     lightningOnline = online;
-    strikeCount.textContent = count;
+    strikeCount.textContent = count.toLocaleString("en-BE");
     updateStatus();
   });
 
@@ -178,30 +181,36 @@ async function main() {
   const weather = new WeatherPanel(cities, {
     onLocationChange(location) {
       map.flyTo([location.lat, location.lon], Math.max(map.getZoom(), 10), {
-        duration: 0.8,
+        duration: 0.85,
       });
-      if (selectedMarker) {
-        map.removeLayer(selectedMarker);
-      }
-      selectedMarker = L.circleMarker([location.lat, location.lon], {
-        radius: 8,
-        color: "#fff",
-        weight: 2,
-        fillColor: "#34d399",
-        fillOpacity: 0.95,
+      if (selectedMarker) map.removeLayer(selectedMarker);
+      selectedMarker = L.marker([location.lat, location.lon], {
+        icon: L.divIcon({
+          className: "selected-pin-wrap",
+          html: '<div class="selected-pin"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        }),
         interactive: false,
+        zIndexOffset: 1500,
       }).addTo(map);
     },
   });
   weather.startAutoRefresh();
 
   function updateClock() {
-    document.getElementById("local-clock").textContent =
-      new Date().toLocaleTimeString("en-BE", {
-        timeZone: "Europe/Brussels",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+    const now = new Date();
+    document.getElementById("local-clock").textContent = now.toLocaleTimeString("en-BE", {
+      timeZone: "Europe/Brussels",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    document.getElementById("local-date").textContent = now.toLocaleDateString("en-BE", {
+      timeZone: "Europe/Brussels",
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
   }
   updateClock();
   setInterval(updateClock, 1000);
@@ -209,7 +218,7 @@ async function main() {
 
 main().catch((err) => {
   console.error("Startup failed:", err);
-  document.getElementById("connection-status").className = "status-pill offline";
-  document.getElementById("connection-status").querySelector(".status-text").textContent =
-    "Startup error";
+  const statusEl = document.getElementById("connection-status");
+  statusEl.className = "status-pill offline";
+  statusEl.querySelector(".status-text").textContent = "Startup error";
 });
