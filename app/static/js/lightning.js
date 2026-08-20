@@ -3,6 +3,19 @@ const MAX_AGE_SEC = 20 * 60;
 const MAX_STRIKES = 3000;
 const MARGIN = 0.35;
 
+function boltSvg(ageClass) {
+  // Filled bolt with dark outline — readable over bright radar echoes.
+  return `
+    <span class="strike-wrap ${ageClass}">
+      <span class="strike-glow"></span>
+      <svg class="strike-bolt" viewBox="0 0 24 32" aria-hidden="true">
+        <path d="M13 0L3 18h8l-2 14 14-20h-8L13 0z"
+              stroke="#0a0f18" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  `;
+}
+
 export class LightningLayer {
   constructor(map, bounds, onStatus) {
     this.map = map;
@@ -14,7 +27,7 @@ export class LightningLayer {
     this.connected = false;
     this.ws = null;
     this.reconnectTimer = null;
-    this.expireTimer = setInterval(() => this.expireStrikes(), 5000);
+    this.expireTimer = setInterval(() => this.expireStrikes(), 2000);
   }
 
   buildSubscription() {
@@ -30,7 +43,7 @@ export class LightningLayer {
 
   connect() {
     if (this.ws) {
-      this.ws.close();
+      try { this.ws.close(); } catch { /* ignore */ }
     }
 
     this.ws = new WebSocket(WS_URL);
@@ -79,10 +92,27 @@ export class LightningLayer {
     return "strike-old";
   }
 
+  iconSizeForAge(ageSec) {
+    if (ageSec < 120) return 34;
+    if (ageSec < 300) return 28;
+    if (ageSec < 600) return 22;
+    return 18;
+  }
+
   inBounds(lat, lon) {
     const { north, south, west, east } = this.bounds;
     return lat >= south - MARGIN && lat <= north + MARGIN
       && lon >= west - MARGIN && lon <= east + MARGIN;
+  }
+
+  makeIcon(ageSec) {
+    const size = this.iconSizeForAge(ageSec);
+    return L.divIcon({
+      className: "strike-marker",
+      html: boltSvg(this.ageClass(ageSec)),
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    });
   }
 
   addStrike(stroke) {
@@ -93,18 +123,15 @@ export class LightningLayer {
     if (this.strikes.has(key)) return;
 
     const epochSec = time > 1e12 ? Math.floor(time / 1000) : time;
+    const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
     const marker = L.marker([lat, lon], {
-      icon: L.divIcon({
-        className: "strike-marker",
-        html: `<span class="strike-icon strike-fresh">⚡</span>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      }),
+      icon: this.makeIcon(ageSec),
       interactive: false,
-      zIndexOffset: 1000,
+      keyboard: false,
+      zIndexOffset: 2000,
     });
 
-    this.strikes.set(key, { epochSec, marker });
+    this.strikes.set(key, { epochSec, marker, ageClass: this.ageClass(ageSec) });
     if (this.visible) marker.addTo(this.layerGroup);
 
     while (this.strikes.size > MAX_STRIKES) {
@@ -130,9 +157,10 @@ export class LightningLayer {
         this.removeStrike(key);
         continue;
       }
-      const el = entry.marker.getElement()?.querySelector(".strike-icon");
-      if (el) {
-        el.className = `strike-icon ${this.ageClass(age)}`;
+      const nextClass = this.ageClass(age);
+      if (nextClass !== entry.ageClass) {
+        entry.ageClass = nextClass;
+        entry.marker.setIcon(this.makeIcon(age));
       }
     }
     this.onStatus?.(this.connected, this.strikes.size);
@@ -144,7 +172,7 @@ export class LightningLayer {
       if (!this.map.hasLayer(this.layerGroup)) {
         this.layerGroup.addTo(this.map);
       }
-    } else {
+    } else if (this.map.hasLayer(this.layerGroup)) {
       this.map.removeLayer(this.layerGroup);
     }
   }

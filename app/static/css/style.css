@@ -134,11 +134,15 @@ a:hover { text-decoration: underline; }
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .toggle-chip:hover { border-color: var(--border-bright); }
@@ -346,11 +350,34 @@ a:hover { text-decoration: underline; }
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.2s;
+  font: inherit;
+  padding: 0;
 }
 
 .ctrl-btn:hover { background: rgba(59, 158, 255, 0.35); }
 .ctrl-btn svg { width: 18px; height: 18px; }
+
+.live-btn {
+  width: auto;
+  min-width: 52px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-family: var(--mono);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.live-btn.active {
+  background: rgba(52, 211, 153, 0.18);
+  border-color: var(--success);
+  color: var(--success);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.25);
+}
 
 .timeline-wrap { flex: 1; min-width: 0; }
 
@@ -408,19 +435,57 @@ a:hover { text-decoration: underline; }
 .legend-stat { color: var(--text-muted); }
 .legend-stat strong { color: var(--text); font-family: var(--mono); }
 
-.strike-marker { background: none !important; border: none !important; }
-
-.strike-icon {
-  font-size: 14px;
-  line-height: 1;
-  text-shadow: 0 0 6px currentColor, 0 1px 3px rgba(0,0,0,0.8);
-  filter: drop-shadow(0 0 4px currentColor);
+.strike-marker {
+  background: none !important;
+  border: none !important;
+  overflow: visible !important;
 }
 
-.strike-fresh { color: #ffffff; }
-.strike-young { color: #fbbf24; }
-.strike-mid { color: #f97316; }
-.strike-old { color: #ef4444; }
+.strike-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.strike-glow {
+  position: absolute;
+  inset: 18%;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.strike-bolt {
+  position: relative;
+  width: 70%;
+  height: 70%;
+  fill: currentColor;
+  filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 1px 2px rgba(0,0,0,0.9));
+}
+
+.strike-fresh {
+  color: #ffffff;
+  animation: strike-pulse 1.2s ease-in-out infinite;
+}
+
+.strike-fresh .strike-glow {
+  opacity: 0.7;
+  inset: 8%;
+  filter: blur(6px);
+}
+
+.strike-young { color: #ffe566; }
+.strike-mid { color: #ff9f43; }
+.strike-old { color: #ff5c5c; opacity: 0.9; }
+
+@keyframes strike-pulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.18); filter: brightness(1.35); }
+}
 
 .city-label {
   background: rgba(12, 20, 32, 0.75) !important;

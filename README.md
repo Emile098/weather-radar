@@ -105,6 +105,9 @@ journalctl -u belgium-radar -f
 
 # Restart
 systemctl restart belgium-radar
+
+# Update to latest release
+cd /opt/belgium-radar && git pull && systemctl restart belgium-radar
 ```
 
 ## License
