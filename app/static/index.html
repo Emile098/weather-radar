@@ -3,93 +3,127 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Belgium Radar — Weather & Lightning</title>
+  <title>Belgium Radar</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="/static/css/style.css?v=4">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇧🇪</text></svg>">
+  <link rel="stylesheet" href="/static/css/style.css?v=5">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23091018'/%3E%3Cpath d='M18 4L8 17h7l-2 11 12-15h-7L18 4z' fill='%2356c2b0'/%3E%3C/svg%3E">
 </head>
 <body>
   <div id="app">
-    <header class="topbar glass">
+    <header class="topbar">
       <div class="brand">
-        <div class="brand-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </div>
-        <div>
-          <h1>Belgium Radar</h1>
-          <p class="subtitle">Live precipitation & lightning</p>
+        <div class="brand-copy">
+          <div class="brand-title">Belgium Radar</div>
+          <div class="brand-sub">Precipitation · Lightning · Forecast</div>
         </div>
       </div>
+
       <div class="city-search-wrap">
         <label class="city-search-label" for="city-search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input id="city-search" type="search" placeholder="Search city…" autocomplete="off" spellcheck="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <input id="city-search" type="search" placeholder="Search Belgian city…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="city-suggestions">
+          <kbd class="search-hint">⌘K</kbd>
         </label>
-        <div id="city-suggestions" class="city-suggestions" hidden></div>
+        <div id="city-suggestions" class="city-suggestions" role="listbox" hidden></div>
       </div>
-      <div class="topbar-center">
+
+      <div class="topbar-meta">
         <div class="status-pill" id="connection-status">
           <span class="status-dot"></span>
-          <span class="status-text">Connecting…</span>
+          <span class="status-text">Connecting</span>
         </div>
-        <div class="clock" id="local-clock">--:--</div>
+        <div class="clock-block">
+          <div class="clock" id="local-clock">--:--</div>
+          <div class="clock-date" id="local-date">—</div>
+        </div>
       </div>
-      <div class="layer-toggles">
+
+      <div class="layer-toggles" role="group" aria-label="Map layers">
         <button type="button" class="toggle-chip active" data-layer="radar" aria-pressed="true">
-          <span class="chip-icon">🌧</span> Radar
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.5" fill="none" opacity=".7"/><circle cx="12" cy="12" r="10.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity=".35"/></svg>
+          Radar
         </button>
         <button type="button" class="toggle-chip active" data-layer="lightning" aria-pressed="true">
-          <span class="chip-icon">⚡</span> Lightning
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 10-14h-7L13 2z" fill="currentColor"/></svg>
+          Lightning
         </button>
         <button type="button" class="toggle-chip" data-layer="cities" aria-pressed="false">
-          <span class="chip-icon">📍</span> Cities
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" stroke="currentColor" stroke-width="1.6" fill="none"/><circle cx="12" cy="10" r="2.2" fill="currentColor"/></svg>
+          Cities
         </button>
       </div>
     </header>
 
-    <aside class="sidebar glass" id="weather-panel">
-      <div class="panel-header">
-        <h2>Weather</h2>
-        <span class="weather-location" id="weather-location">Brussels</span>
+    <aside class="sidebar" id="weather-panel">
+      <div class="panel-kicker">
+        <span>Local conditions</span>
+        <span class="weather-updated" id="weather-updated">Updating…</span>
       </div>
+      <div class="panel-header">
+        <h2 id="weather-location">Brussels</h2>
+      </div>
+
       <div class="current-weather" id="current-weather">
         <div class="weather-icon-lg" id="weather-icon">—</div>
         <div class="temp-block">
           <div class="temp-main" id="temp-main">—°</div>
           <div class="temp-feels" id="temp-feels">Feels like —°</div>
+          <div class="weather-desc" id="weather-desc">Loading forecast…</div>
         </div>
-        <div class="weather-desc" id="weather-desc">Loading…</div>
       </div>
+
       <div class="metrics-grid">
-        <div class="metric"><span class="metric-label">Wind</span><span class="metric-value" id="metric-wind">—</span></div>
-        <div class="metric"><span class="metric-label">Humidity</span><span class="metric-value" id="metric-humidity">—</span></div>
-        <div class="metric"><span class="metric-label">Pressure</span><span class="metric-value" id="metric-pressure">—</span></div>
-        <div class="metric"><span class="metric-label">Precip</span><span class="metric-value" id="metric-precip">—</span></div>
+        <div class="metric">
+          <span class="metric-label">Wind</span>
+          <span class="metric-value" id="metric-wind">—</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Humidity</span>
+          <span class="metric-value" id="metric-humidity">—</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Pressure</span>
+          <span class="metric-value" id="metric-pressure">—</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Precip</span>
+          <span class="metric-value" id="metric-precip">—</span>
+        </div>
       </div>
-      <div class="forecast-section">
-        <h3>Next hours</h3>
+
+      <section class="forecast-section">
+        <div class="section-head">
+          <h3>Next hours</h3>
+        </div>
         <div class="hourly-scroll" id="hourly-forecast"></div>
-      </div>
-      <div class="forecast-section">
-        <h3>3-day outlook</h3>
+      </section>
+
+      <section class="forecast-section">
+        <div class="section-head">
+          <h3>3-day outlook</h3>
+        </div>
         <div class="daily-list" id="daily-forecast"></div>
-      </div>
-      <div class="attribution">
-        <p>Radar: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a></p>
-        <p>Lightning: <a href="https://www.lightningmaps.org/" target="_blank" rel="noopener">LightningMaps</a></p>
-        <p>Forecast: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a></p>
-      </div>
+      </section>
+
+      <footer class="attribution">
+        <span>Radar <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a></span>
+        <span>Lightning <a href="https://www.lightningmaps.org/" target="_blank" rel="noopener">LightningMaps</a></span>
+        <span>Forecast <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a></span>
+      </footer>
     </aside>
 
     <main class="map-wrap">
       <div id="map"></div>
-      <div class="map-overlay glass radar-controls">
-        <button class="ctrl-btn live-btn active" id="btn-live" title="Jump to live radar" aria-label="Live radar">
-          LIVE
-        </button>
+      <div class="map-vignette" aria-hidden="true"></div>
+
+      <div class="radar-controls">
+        <button class="ctrl-btn live-btn active" id="btn-live" title="Jump to live radar" aria-label="Live radar">LIVE</button>
         <button class="ctrl-btn" id="btn-play" title="Replay radar history" aria-label="Replay animation">
           <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
           <svg id="icon-pause" viewBox="0 0 24 24" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z" fill="currentColor"/></svg>
@@ -103,23 +137,24 @@
         </div>
         <div class="opacity-control">
           <label for="radar-opacity">Opacity</label>
-          <input type="range" id="radar-opacity" min="20" max="100" value="75">
+          <input type="range" id="radar-opacity" min="20" max="100" value="72">
         </div>
       </div>
-      <div class="legend glass">
+
+      <div class="legend">
         <div class="legend-title">Lightning age</div>
         <div class="legend-items">
-          <span class="legend-item"><i class="dot white"></i> New / &lt;2 min</span>
+          <span class="legend-item"><i class="dot white"></i> New</span>
           <span class="legend-item"><i class="dot yellow"></i> 2–5 min</span>
           <span class="legend-item"><i class="dot orange"></i> 5–10 min</span>
           <span class="legend-item"><i class="dot red"></i> 10–20 min</span>
         </div>
-        <div class="legend-stat">Strikes: <strong id="strike-count">0</strong></div>
+        <div class="legend-stat">Active strikes <strong id="strike-count">0</strong></div>
       </div>
     </main>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script type="module" src="/static/js/app.js?v=4"></script>
+  <script type="module" src="/static/js/app.js?v=5"></script>
 </body>
 </html>
