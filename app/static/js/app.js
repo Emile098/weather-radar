@@ -31,6 +31,7 @@ async function main() {
   ]);
 
   const cityLayer = L.layerGroup();
+  let selectedMarker = null;
   for (const city of cities) {
     L.circleMarker([city.lat, city.lon], {
       radius: 5,
@@ -174,7 +175,24 @@ async function main() {
     });
   });
 
-  const weather = new WeatherPanel(cities);
+  const weather = new WeatherPanel(cities, {
+    onLocationChange(location) {
+      map.flyTo([location.lat, location.lon], Math.max(map.getZoom(), 10), {
+        duration: 0.8,
+      });
+      if (selectedMarker) {
+        map.removeLayer(selectedMarker);
+      }
+      selectedMarker = L.circleMarker([location.lat, location.lon], {
+        radius: 8,
+        color: "#fff",
+        weight: 2,
+        fillColor: "#34d399",
+        fillOpacity: 0.95,
+        interactive: false,
+      }).addTo(map);
+    },
+  });
   weather.startAutoRefresh();
 
   function updateClock() {

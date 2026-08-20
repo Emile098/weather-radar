@@ -30,6 +30,19 @@ BELGIUM = {
         {"name": "Liège", "lat": 50.6326, "lon": 5.5797},
         {"name": "Bruges", "lat": 51.2093, "lon": 3.2247},
         {"name": "Namur", "lat": 50.4674, "lon": 4.8719},
+        {"name": "Leuven", "lat": 50.8798, "lon": 4.7005},
+        {"name": "Mechelen", "lat": 51.0259, "lon": 4.4776},
+        {"name": "Hasselt", "lat": 50.9307, "lon": 5.3378},
+        {"name": "Kortrijk", "lat": 50.8270, "lon": 3.2649},
+        {"name": "Ostend", "lat": 51.2300, "lon": 2.9200},
+        {"name": "Mons", "lat": 50.4542, "lon": 3.9523},
+        {"name": "Aalst", "lat": 50.9372, "lon": 4.0409},
+        {"name": "Sint-Niklaas", "lat": 51.1657, "lon": 4.1437},
+        {"name": "Tournai", "lat": 50.6057, "lon": 3.3878},
+        {"name": "Genk", "lat": 50.9650, "lon": 5.5000},
+        {"name": "Roeselare", "lat": 50.9445, "lon": 3.1229},
+        {"name": "Verviers", "lat": 50.5891, "lon": 5.8624},
+        {"name": "Arlon", "lat": 49.6833, "lon": 5.8167},
     ],
 }
 
@@ -82,6 +95,38 @@ async def weather(
     if response.status_code != 200:
         raise HTTPException(status_code=502, detail="Open-Meteo unavailable")
     return response.json()
+
+
+@app.get("/api/geocode")
+async def geocode(q: str = "") -> dict:
+    """City search via Open-Meteo geocoding, biased to Belgium."""
+    query = q.strip()
+    if len(query) < 2:
+        return {"results": []}
+
+    params = {
+        "name": query,
+        "count": 8,
+        "language": "en",
+        "format": "json",
+        "countryCode": "BE",
+    }
+    url = "https://geocoding-api.open-meteo.com/v1/search"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url, params=params)
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail="Geocoding unavailable")
+        data = response.json()
+
+        # If Belgium-only search is empty, fall back to nearby countries.
+        if not data.get("results"):
+            params.pop("countryCode", None)
+            response = await client.get(url, params=params)
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="Geocoding unavailable")
+            data = response.json()
+
+    return data
 
 
 @app.get("/")
