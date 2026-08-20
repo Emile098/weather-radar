@@ -107,7 +107,13 @@ journalctl -u belgium-radar -f
 systemctl restart belgium-radar
 
 # Update to latest (run on the Proxmox host — config must be set inside the CT)
-pct exec <CTID> -- bash -c 'git config --global --add safe.directory /opt/belgium-radar; cd /opt/belgium-radar && git fetch origin && git checkout main && git pull && systemctl restart belgium-radar'
+pct exec <CTID> -- bash -c 'git config --global --add safe.directory /opt/belgium-radar; cd /opt/belgium-radar && git fetch origin cursor/belgium-radar-lxc-dashboard-87fe:cursor/belgium-radar-lxc-dashboard-87fe && git checkout cursor/belgium-radar-lxc-dashboard-87fe && git pull && systemctl restart belgium-radar'
+```
+
+After PR merge, switching back to main is enough:
+
+```bash
+pct exec <CTID> -- bash -c 'cd /opt/belgium-radar && git fetch origin main:main && git checkout main && git pull && systemctl restart belgium-radar'
 ```
 
 ## License
