@@ -1,5 +1,3 @@
-import { fetchJson } from "./utils.js?v=6";
-
 const WS_URL = "wss://live2.lightningmaps.org/";
 const MAX_AGE_SEC = 20 * 60;
 const MAX_STRIKES = 4000;
