@@ -106,8 +106,8 @@ journalctl -u belgium-radar -f
 # Restart
 systemctl restart belgium-radar
 
-# Update to latest release
-cd /opt/belgium-radar && git pull && systemctl restart belgium-radar
+# Update to latest (run on the Proxmox host — config must be set inside the CT)
+pct exec <CTID> -- bash -c 'git config --global --add safe.directory /opt/belgium-radar; cd /opt/belgium-radar && git fetch origin && git checkout main && git pull && systemctl restart belgium-radar'
 ```
 
 ## License
