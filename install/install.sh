@@ -131,6 +131,9 @@ install_app() {
 
   rm -rf "$APP_DIR"
   git clone --depth 1 "$REPO" "$APP_DIR"
+  # Allow root maintenance (pct exec / updates) even though files are owned by the service user.
+  git config --global --add safe.directory "$APP_DIR" || true
+  git -C "$APP_DIR" config --add safe.directory "$APP_DIR" || true
   python3 -m venv "$APP_DIR/venv"
   "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
   "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/app/requirements.txt"
