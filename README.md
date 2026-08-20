@@ -75,9 +75,29 @@ Open http://localhost:8080
 
 | Layer | Source | Notes |
 |-------|--------|-------|
-| Radar | [RainViewer](https://www.rainviewer.com/) | Free for personal use; attribution required |
+| Radar | RainViewer / DWD / OpenWeatherMap | Switchable in the dashboard |
 | Lightning | [LightningMaps](https://www.lightningmaps.org/) | Real-time WebSocket |
 | Forecast | [Open-Meteo](https://open-meteo.com/) | No API key needed |
+
+### Radar sources
+
+| Source | Coverage | Notes |
+|--------|----------|-------|
+| **RainViewer** | Global (best for Belgium) | Animated history, free for personal use |
+| **RainViewer + Forecast** | Global | Adds nowcast frames when RainViewer publishes them |
+| **DWD Germany** | Germany + border region | Strong for eastern Belgium / Arlon–Liège storms |
+| **OpenWeatherMap** | Global | Live tiles only — requires `OWM_API_KEY` |
+
+Optional OpenWeatherMap key (inside the container):
+
+```bash
+# /etc/systemd/system/belgium-radar.service.d/override.conf
+[Service]
+Environment=OWM_API_KEY=your_key_here
+```
+
+Then `systemctl daemon-reload && systemctl restart belgium-radar`.
+
 
 ## Architecture
 

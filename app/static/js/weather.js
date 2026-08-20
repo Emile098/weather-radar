@@ -1,4 +1,4 @@
-import { fetchJson, wmoIcon, wmoLabel, windDir, formatTime, formatDay } from "./utils.js?v=5";
+import { fetchJson, wmoIcon, wmoLabel, windDir, formatTime, formatDay } from "./utils.js?v=6";
 
 function normalize(text) {
   return String(text || "")

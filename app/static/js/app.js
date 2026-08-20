@@ -1,11 +1,11 @@
-import { fetchJson } from "./utils.js?v=5";
-import { RadarLayer } from "./radar.js?v=5";
-import { LightningLayer } from "./lightning.js?v=5";
-import { WeatherPanel } from "./weather.js?v=5";
+import { fetchJson } from "./utils.js?v=6";
+import { RadarLayer } from "./radar.js?v=6";
+import { LightningLayer } from "./lightning.js?v=6";
+import { WeatherPanel } from "./weather.js?v=6";
 
 async function main() {
   const config = await fetchJson("/api/config");
-  const { center, bounds, cities } = config;
+  const { center, bounds, cities, radarSources = [], defaultRadarSource = "rainviewer" } = config;
 
   const map = L.map("map", {
     center: [center.lat, center.lon],
@@ -15,8 +15,6 @@ async function main() {
     zoomControl: true,
     attributionControl: true,
   });
-
-  L.control.zoom({ position: "topright" });
 
   L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -65,9 +63,26 @@ async function main() {
   const iconPause = document.getElementById("icon-pause");
   const statusEl = document.getElementById("connection-status");
   const strikeCount = document.getElementById("strike-count");
+  const sourceSelect = document.getElementById("radar-source");
+  const sourceBadge = document.getElementById("source-badge");
+  const radarControls = document.querySelector(".radar-controls");
 
   let radarOnline = false;
   let lightningOnline = false;
+
+  function populateSources() {
+    const saved = localStorage.getItem("belgium-radar-source") || defaultRadarSource;
+    sourceSelect.innerHTML = radarSources.map((source) => {
+      const disabled = source.available ? "" : "disabled";
+      const label = source.available ? source.name : `${source.name} (unavailable)`;
+      return `<option value="${source.id}" ${disabled}>${label}</option>`;
+    }).join("");
+
+    const usable = radarSources.find((s) => s.id === saved && s.available)
+      || radarSources.find((s) => s.available)
+      || radarSources[0];
+    if (usable) sourceSelect.value = usable.id;
+  }
 
   function updateStatus() {
     if (radarOnline && lightningOnline) {
@@ -94,20 +109,42 @@ async function main() {
     btnLive.classList.toggle("active", isLive);
   }
 
-  const radar = new RadarLayer(map, (idx, total, timestamp, isLive) => {
-    slider.max = Math.max(0, total - 1);
-    slider.value = idx;
-    frameIndex.textContent = isLive ? "LIVE" : `${idx + 1} / ${total}`;
-    frameTime.textContent = new Date(timestamp * 1000).toLocaleString("en-BE", {
-      timeZone: "Europe/Brussels",
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "short",
-    });
-    syncLiveButton(isLive);
-    if (!radar.playing) syncPlayIcons(false);
-  });
+  function syncAnimationUi(animated) {
+    radarControls.classList.toggle("is-static", !animated);
+    btnPlay.disabled = !animated;
+    slider.disabled = !animated;
+    if (!animated) syncPlayIcons(false);
+  }
+
+  populateSources();
+
+  const radar = new RadarLayer(
+    map,
+    (idx, total, timestamp, isLive, kind = "observed") => {
+      slider.max = Math.max(0, total - 1);
+      slider.value = idx;
+      const prefix = kind === "forecast" ? "FC " : "";
+      frameIndex.textContent = isLive ? "LIVE" : `${idx + 1} / ${total}`;
+      frameTime.textContent = prefix + new Date(timestamp * 1000).toLocaleString("en-BE", {
+        timeZone: "Europe/Brussels",
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "short",
+      });
+      syncLiveButton(isLive);
+      if (!radar.playing) syncPlayIcons(false);
+    },
+    (sourceId, manifest) => {
+      const meta = radarSources.find((s) => s.id === sourceId);
+      sourceBadge.textContent = meta?.name || sourceId;
+      sourceBadge.title = manifest?.note || meta?.description || "";
+      syncAnimationUi(Boolean(manifest?.animated));
+    },
+  );
+
+  // Ensure RadarLayer starts on the selected source.
+  radar.sourceId = sourceSelect.value;
 
   const lightning = new LightningLayer(map, {
     north: bounds.north,
@@ -133,6 +170,24 @@ async function main() {
   }
   updateStatus();
   radar.startAutoRefresh();
+
+  sourceSelect.addEventListener("change", async () => {
+    const next = sourceSelect.value;
+    sourceSelect.disabled = true;
+    try {
+      await radar.setSource(next, { keepLive: true });
+      radarOnline = true;
+      syncPlayIcons(false);
+      syncLiveButton(true);
+    } catch (err) {
+      console.error("Radar source switch failed:", err);
+      radarOnline = false;
+      sourceBadge.textContent = "Radar unavailable";
+    } finally {
+      sourceSelect.disabled = false;
+      updateStatus();
+    }
+  });
 
   slider.addEventListener("input", () => {
     radar.pause();

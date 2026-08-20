@@ -1,19 +1,19 @@
-import { fetchJson } from "./utils.js";
+import { fetchJson } from "./utils.js?v=6";
 
-const TILE_SIZE = 512;
-const COLOR_SCHEME = 2;
-const TILE_OPTIONS = "1_1";
 const REFRESH_MS = 2 * 60 * 1000;
+const STORAGE_KEY = "belgium-radar-source";
 
 export class RadarLayer {
-  constructor(map, onFrameChange) {
+  constructor(map, onFrameChange, onSourceChange) {
     this.map = map;
     this.onFrameChange = onFrameChange;
+    this.onSourceChange = onSourceChange;
+    this.sourceId = localStorage.getItem(STORAGE_KEY) || "rainviewer";
+    this.manifest = null;
     this.frames = [];
-    this.host = "";
     this.currentLayer = null;
     this.frameIndex = 0;
-    this.opacity = 0.75;
+    this.opacity = 0.72;
     this.visible = true;
     this.playing = false;
     this.liveMode = true;
@@ -22,54 +22,124 @@ export class RadarLayer {
   }
 
   get isLive() {
+    if (!this.frames.length) return true;
+    if (!this.manifest?.animated) return true;
     return this.liveMode && this.frameIndex === this.frames.length - 1;
   }
 
-  async load({ keepLive = true } = {}) {
-    const data = await fetchJson("/api/rainviewer");
-    this.host = data.host;
-    const past = data.radar?.past ?? [];
-    this.frames = past;
-    if (this.frames.length === 0) throw new Error("No radar frames");
+  get animated() {
+    return Boolean(this.manifest?.animated && this.frames.length > 1);
+  }
 
-    if (keepLive || this.liveMode) {
+  async setSource(sourceId, { keepLive = true } = {}) {
+    this.pause();
+    this.sourceId = sourceId;
+    localStorage.setItem(STORAGE_KEY, sourceId);
+    await this.load({ keepLive });
+    this.onSourceChange?.(this.sourceId, this.manifest);
+  }
+
+  async load({ keepLive = true } = {}) {
+    const manifest = await fetchJson(
+      `/api/radar/manifest?source=${encodeURIComponent(this.sourceId)}`,
+    );
+    this.manifest = manifest;
+    this.frames = manifest.frames || [];
+    if (!this.frames.length) throw new Error("No radar frames");
+
+    if (!manifest.animated) {
+      this.liveMode = true;
+      this.showFrame(this.frames.length - 1, { fromLive: true });
+    } else if (keepLive || this.liveMode) {
       this.goLive();
     } else {
       this.showFrame(Math.min(this.frameIndex, this.frames.length - 1));
     }
+
+    this.onSourceChange?.(this.sourceId, this.manifest);
     return this.frames.length;
   }
 
-  tileUrl(frame) {
-    return `${this.host}${frame.path}/${TILE_SIZE}/{z}/{x}/{y}/${COLOR_SCHEME}/${TILE_OPTIONS}.png`;
-  }
-
-  showFrame(index, { fromLive = false } = {}) {
-    if (!this.frames.length) return;
-    this.frameIndex = Math.max(0, Math.min(index, this.frames.length - 1));
-    if (!fromLive) {
-      this.liveMode = this.frameIndex === this.frames.length - 1;
-    }
-    const frame = this.frames[this.frameIndex];
-
+  clearLayer() {
     if (this.currentLayer) {
       this.map.removeLayer(this.currentLayer);
       this.currentLayer = null;
     }
+  }
 
-    if (this.visible) {
-      this.currentLayer = L.tileLayer(this.tileUrl(frame), {
+  buildLayer(frame) {
+    const provider = this.manifest.provider;
+
+    if (provider === "rainviewer") {
+      const size = this.manifest.tileSize || 512;
+      const color = this.manifest.color ?? 2;
+      const options = this.manifest.options || "1_1";
+      const url =
+        `${this.manifest.host}${frame.path}/${size}/{z}/{x}/{y}/${color}/${options}.png`;
+      return L.tileLayer(url, {
         tileSize: 256,
         opacity: this.opacity,
-        maxNativeZoom: 7,
+        maxNativeZoom: this.manifest.maxNativeZoom || 7,
         maxZoom: 12,
         zIndex: 200,
         className: "radar-tiles",
       });
+    }
+
+    if (provider === "dwd") {
+      const wms = this.manifest.wms;
+      const iso = new Date(frame.time * 1000).toISOString().slice(0, 19) + "Z";
+      return L.tileLayer.wms(wms.url, {
+        layers: wms.layers,
+        format: wms.format,
+        transparent: wms.transparent,
+        version: wms.version,
+        opacity: this.opacity,
+        time: iso,
+        uppercase: true,
+        maxZoom: 12,
+        zIndex: 200,
+        className: "radar-tiles",
+        attribution: "DWD",
+      });
+    }
+
+    if (provider === "owm") {
+      return L.tileLayer(this.manifest.tileUrl, {
+        opacity: this.opacity,
+        maxNativeZoom: this.manifest.maxNativeZoom || 10,
+        maxZoom: 12,
+        zIndex: 200,
+        className: "radar-tiles",
+        attribution: "OpenWeatherMap",
+      });
+    }
+
+    throw new Error(`Unsupported radar provider: ${provider}`);
+  }
+
+  showFrame(index, { fromLive = false } = {}) {
+    if (!this.frames.length || !this.manifest) return;
+    this.frameIndex = Math.max(0, Math.min(index, this.frames.length - 1));
+    if (!fromLive && this.animated) {
+      this.liveMode = this.frameIndex === this.frames.length - 1;
+    }
+
+    const frame = this.frames[this.frameIndex];
+    this.clearLayer();
+
+    if (this.visible) {
+      this.currentLayer = this.buildLayer(frame);
       this.currentLayer.addTo(this.map);
     }
 
-    this.onFrameChange?.(this.frameIndex, this.frames.length, frame.time, this.isLive);
+    this.onFrameChange?.(
+      this.frameIndex,
+      this.frames.length,
+      frame.time,
+      this.isLive,
+      frame.kind || "observed",
+    );
   }
 
   goLive() {
@@ -86,18 +156,16 @@ export class RadarLayer {
   setVisible(visible) {
     this.visible = visible;
     if (visible) this.showFrame(this.frameIndex, { fromLive: this.liveMode });
-    else if (this.currentLayer) {
-      this.map.removeLayer(this.currentLayer);
-      this.currentLayer = null;
-    }
+    else this.clearLayer();
   }
 
   play() {
+    if (!this.animated) return false;
     this.liveMode = false;
     this.playing = true;
-    // Start replay from the oldest frame so history is visible.
     this.showFrame(0);
     this.scheduleNext();
+    return true;
   }
 
   pause() {
@@ -109,22 +177,21 @@ export class RadarLayer {
   }
 
   togglePlay() {
+    if (!this.animated) return false;
     if (this.playing) {
       this.pause();
       return false;
     }
-    this.play();
-    return true;
+    return this.play();
   }
 
   scheduleNext() {
     if (this.playTimer) clearTimeout(this.playTimer);
-    if (!this.playing || !this.visible) return;
+    if (!this.playing || !this.visible || !this.animated) return;
 
     this.playTimer = setTimeout(() => {
       const last = this.frames.length - 1;
       if (this.frameIndex >= last) {
-        // Finished history — settle on live instead of looping back in time.
         this.pause();
         this.goLive();
         return;
