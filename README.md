@@ -47,7 +47,11 @@ CTID=200 CT_HOSTNAME=radar CT_RAM=1024 CT_DISK=8 CT_IP=192.168.1.50/24 CT_GATEWA
 | `CT_DISK` | `4` | Disk (GB) |
 | `CT_BRIDGE` | `vmbr0` | Network bridge |
 | `CT_IP` | `dhcp` | IP config |
-| `STORAGE` | `local-lvm` | Storage pool |
+| `STORAGE` | `local-lvm` | Rootfs storage pool |
+| `TEMPLATE_STORAGE` | `local` | Where LXC templates live |
+| `TEMPLATE` | auto | Override template, e.g. `local:vztmpl/debian-12-standard_….tar.zst` |
+
+The installer auto-detects a downloaded Debian 12 template, or downloads the newest `debian-12-standard` image via `pveam` if none is present.
 
 ### App-only install (existing LXC/VM)
 

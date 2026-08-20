@@ -24,7 +24,8 @@ CT_IP="${CT_IP:-dhcp}"
 CT_GATEWAY="${CT_GATEWAY:-}"
 CT_DNS="${CT_DNS:-}"
 STORAGE="${STORAGE:-local-lvm}"
-TEMPLATE="${TEMPLATE:-local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst}"
+TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-local}"
+TEMPLATE="${TEMPLATE:-}"
 UNPRIVILEGED="${UNPRIVILEGED:-1}"
 
 APP_ONLY=0
@@ -48,10 +49,73 @@ require_root() {
 
 pick_ctid() {
   if [[ -n "$CTID" ]]; then
+    if pct status "$CTID" &>/dev/null; then
+      fail "CTID ${CTID} already exists. Destroy it first (pct destroy ${CTID}) or pick another CTID=."
+    fi
     return
   fi
   CTID=$(pvesh get /cluster/nextid 2>/dev/null || echo "")
   [[ -n "$CTID" ]] || fail "Could not determine next CTID. Set CTID= manually."
+}
+
+# Resolve a usable Debian LXC template volume path (storage:vztmpl/file).
+resolve_template() {
+  if [[ -n "$TEMPLATE" ]]; then
+    if [[ "$TEMPLATE" == *":"* ]]; then
+      ok "Using provided template: ${TEMPLATE}"
+      return
+    fi
+    TEMPLATE="${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}"
+    ok "Using provided template: ${TEMPLATE}"
+    return
+  fi
+
+  local filename=""
+
+  # 1) Prefer an already-downloaded Debian 12 template.
+  filename=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null \
+    | awk '/debian-12-standard/ {print $1; exit}' \
+    | sed 's|.*/||')
+
+  if [[ -z "$filename" ]]; then
+    filename=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null \
+      | awk '/debian-1[2-9]-standard/ {print $1; exit}' \
+      | sed 's|.*/||')
+  fi
+
+  # 2) Otherwise discover + download the newest Debian 12 standard image.
+  if [[ -z "$filename" ]]; then
+    msg "Updating Proxmox appliance catalog…"
+    pveam update >/dev/null || true
+
+    filename=$(pveam available --section system 2>/dev/null \
+      | awk '/debian-12-standard/ {print $NF}' \
+      | sort -V \
+      | tail -n1)
+
+    if [[ -z "$filename" ]]; then
+      filename=$(pveam available 2>/dev/null \
+        | awk '/debian-12-standard/ {print $NF}' \
+        | sort -V \
+        | tail -n1)
+    fi
+
+    [[ -n "$filename" ]] || fail \
+      "No debian-12-standard template found. Download one first, e.g.:
+  pveam update
+  pveam available | grep debian-12
+  pveam download ${TEMPLATE_STORAGE} <filename>
+Or re-run with TEMPLATE=local:vztmpl/<your-template>.tar.zst"
+
+    msg "Downloading template ${filename} to ${TEMPLATE_STORAGE}…"
+    pveam download "$TEMPLATE_STORAGE" "$filename" \
+      || fail "Failed to download template ${filename}"
+  else
+    msg "Found downloaded template: ${filename}"
+  fi
+
+  TEMPLATE="${TEMPLATE_STORAGE}:vztmpl/${filename}"
+  ok "Using template: ${TEMPLATE}"
 }
 
 install_app() {
@@ -127,16 +191,12 @@ SYSTEMD
 create_lxc() {
   require_root
   command -v pct >/dev/null 2>&1 || fail "pct not found — run this on a Proxmox host."
+  command -v pveam >/dev/null 2>&1 || fail "pveam not found — run this on a Proxmox host."
 
   pick_ctid
-  msg "Creating LXC container CTID=${CTID} (${CT_HOSTNAME})…"
+  resolve_template
 
-  if pveam available 2>/dev/null | grep -q "debian-12-standard"; then
-    TEMPLATE=$(pveam available --section system | awk '/debian-12-standard/ {print $2; exit}')
-    msg "Using template: ${TEMPLATE}"
-    pveam download local "${TEMPLATE##*/}" 2>/dev/null || true
-    TEMPLATE="local:vztmpl/${TEMPLATE##*/}"
-  fi
+  msg "Creating LXC container CTID=${CTID} (${CT_HOSTNAME})…"
 
   NET_CONFIG="name=eth0,bridge=${CT_BRIDGE},ip=${CT_IP}"
   [[ -n "$CT_GATEWAY" ]] && NET_CONFIG="${NET_CONFIG},gw=${CT_GATEWAY}"
@@ -156,11 +216,23 @@ create_lxc() {
   )
   [[ -n "$CT_DNS" ]] && PCT_ARGS+=(--nameserver "$CT_DNS")
 
-  pct "${PCT_ARGS[@]}"
+  if ! pct "${PCT_ARGS[@]}"; then
+    fail "Failed to create CT ${CTID}. Check TEMPLATE=${TEMPLATE} and STORAGE=${STORAGE}."
+  fi
 
   msg "Starting container…"
   pct start "$CTID"
-  sleep 5
+
+  # Wait until the guest has networking / can run commands.
+  local ready=0
+  for _ in $(seq 1 30); do
+    if pct exec "$CTID" -- true &>/dev/null; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [[ "$ready" -eq 1 ]] || fail "CT ${CTID} started but is not responding to pct exec."
 
   msg "Installing app inside container…"
   pct exec "$CTID" -- bash -c "
