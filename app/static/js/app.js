@@ -1,11 +1,17 @@
-import { fetchJson } from "./utils.js?v=6";
-import { RadarLayer } from "./radar.js?v=6";
-import { LightningLayer } from "./lightning.js?v=6";
-import { WeatherPanel } from "./weather.js?v=6";
+import { fetchJson } from "./utils.js?v=7";
+import { RadarLayer } from "./radar.js?v=7";
+import { LightningLayer } from "./lightning.js?v=7";
+import { WeatherPanel } from "./weather.js?v=7";
 
 async function main() {
   const config = await fetchJson("/api/config");
-  const { center, bounds, cities, radarSources = [], defaultRadarSource = "rainviewer" } = config;
+  const {
+    center,
+    bounds,
+    cities,
+    radarSources = [],
+    defaultRadarSource = "rainviewer",
+  } = config;
 
   const map = L.map("map", {
     center: [center.lat, center.lon],
@@ -19,16 +25,20 @@ async function main() {
   L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://carto.com/">CARTO</a>',
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://carto.com/">CARTO</a>',
       subdomains: "abcd",
       maxZoom: 19,
     },
   ).addTo(map);
 
-  map.fitBounds([
-    [bounds.south, bounds.west],
-    [bounds.north, bounds.east],
-  ], { padding: [24, 24] });
+  map.fitBounds(
+    [
+      [bounds.south, bounds.west],
+      [bounds.north, bounds.east],
+    ],
+    { padding: [24, 24] },
+  );
 
   const cityLayer = L.layerGroup();
   let selectedMarker = null;
@@ -64,24 +74,71 @@ async function main() {
   const statusEl = document.getElementById("connection-status");
   const strikeCount = document.getElementById("strike-count");
   const sourceSelect = document.getElementById("radar-source");
+  const sourceButtons = document.getElementById("radar-source-buttons");
   const sourceBadge = document.getElementById("source-badge");
   const radarControls = document.querySelector(".radar-controls");
 
   let radarOnline = false;
   let lightningOnline = false;
+  let switching = false;
+
+  function escapeAttr(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
+  }
+
+  function selectedSourceId() {
+    return (
+      sourceSelect.value ||
+      localStorage.getItem("belgium-radar-source") ||
+      defaultRadarSource
+    );
+  }
+
+  function syncSourceUi(sourceId) {
+    if (sourceSelect) sourceSelect.value = sourceId;
+    if (!sourceButtons) return;
+    sourceButtons.querySelectorAll(".source-btn").forEach((btn) => {
+      const active = btn.dataset.source === sourceId;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
 
   function populateSources() {
-    const saved = localStorage.getItem("belgium-radar-source") || defaultRadarSource;
-    sourceSelect.innerHTML = radarSources.map((source) => {
-      const disabled = source.available ? "" : "disabled";
-      const label = source.available ? source.name : `${source.name} (unavailable)`;
-      return `<option value="${source.id}" ${disabled}>${label}</option>`;
-    }).join("");
+    const saved =
+      localStorage.getItem("belgium-radar-source") || defaultRadarSource;
 
-    const usable = radarSources.find((s) => s.id === saved && s.available)
-      || radarSources.find((s) => s.available)
-      || radarSources[0];
-    if (usable) sourceSelect.value = usable.id;
+    if (sourceSelect) {
+      sourceSelect.innerHTML = radarSources
+        .map((source) => {
+          const disabled = source.available ? "" : "disabled";
+          const label = source.available
+            ? source.name
+            : `${source.name} (unavailable)`;
+          return `<option value="${source.id}" ${disabled}>${label}</option>`;
+        })
+        .join("");
+    }
+
+    if (sourceButtons) {
+      sourceButtons.innerHTML = radarSources
+        .map((source) => {
+          const disabled = source.available ? "" : "disabled";
+          const title = escapeAttr(source.description || source.name);
+          const short = escapeAttr(source.short || source.name);
+          return `<button type="button" class="source-btn" data-source="${source.id}" title="${title}" ${disabled} aria-pressed="false">${short}</button>`;
+        })
+        .join("");
+    }
+
+    const usable =
+      radarSources.find((s) => s.id === saved && s.available) ||
+      radarSources.find((s) => s.available) ||
+      radarSources[0];
+    if (usable) syncSourceUi(usable.id);
   }
 
   function updateStatus() {
@@ -125,13 +182,15 @@ async function main() {
       slider.value = idx;
       const prefix = kind === "forecast" ? "FC " : "";
       frameIndex.textContent = isLive ? "LIVE" : `${idx + 1} / ${total}`;
-      frameTime.textContent = prefix + new Date(timestamp * 1000).toLocaleString("en-BE", {
-        timeZone: "Europe/Brussels",
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "short",
-      });
+      frameTime.textContent =
+        prefix +
+        new Date(timestamp * 1000).toLocaleString("en-BE", {
+          timeZone: "Europe/Brussels",
+          hour: "2-digit",
+          minute: "2-digit",
+          day: "2-digit",
+          month: "short",
+        });
       syncLiveButton(isLive);
       if (!radar.playing) syncPlayIcons(false);
     },
@@ -139,23 +198,59 @@ async function main() {
       const meta = radarSources.find((s) => s.id === sourceId);
       sourceBadge.textContent = meta?.name || sourceId;
       sourceBadge.title = manifest?.note || meta?.description || "";
+      syncSourceUi(sourceId);
       syncAnimationUi(Boolean(manifest?.animated));
     },
   );
 
-  // Ensure RadarLayer starts on the selected source.
-  radar.sourceId = sourceSelect.value;
+  async function switchSource(next) {
+    if (!next || switching) return;
+    if (next === radar.sourceId) {
+      syncSourceUi(next);
+      return;
+    }
+    switching = true;
+    if (sourceSelect) sourceSelect.disabled = true;
+    sourceButtons?.querySelectorAll(".source-btn").forEach((b) => {
+      b.disabled = true;
+    });
+    syncSourceUi(next);
+    try {
+      await radar.setSource(next, { keepLive: true });
+      radarOnline = true;
+      syncPlayIcons(false);
+      syncLiveButton(true);
+    } catch (err) {
+      console.error("Radar source switch failed:", err);
+      radarOnline = false;
+      sourceBadge.textContent = "Radar unavailable";
+    } finally {
+      switching = false;
+      if (sourceSelect) sourceSelect.disabled = false;
+      sourceButtons?.querySelectorAll(".source-btn").forEach((b) => {
+        const meta = radarSources.find((s) => s.id === b.dataset.source);
+        b.disabled = !meta?.available;
+      });
+      updateStatus();
+    }
+  }
 
-  const lightning = new LightningLayer(map, {
-    north: bounds.north,
-    south: bounds.south,
-    west: bounds.west,
-    east: bounds.east,
-  }, (online, count) => {
-    lightningOnline = online;
-    strikeCount.textContent = count.toLocaleString("en-BE");
-    updateStatus();
-  });
+  radar.sourceId = selectedSourceId();
+
+  const lightning = new LightningLayer(
+    map,
+    {
+      north: bounds.north,
+      south: bounds.south,
+      west: bounds.west,
+      east: bounds.east,
+    },
+    (online, count) => {
+      lightningOnline = online;
+      strikeCount.textContent = count.toLocaleString("en-BE");
+      updateStatus();
+    },
+  );
 
   lightning.connect();
 
@@ -171,22 +266,24 @@ async function main() {
   updateStatus();
   radar.startAutoRefresh();
 
-  sourceSelect.addEventListener("change", async () => {
-    const next = sourceSelect.value;
-    sourceSelect.disabled = true;
-    try {
-      await radar.setSource(next, { keepLive: true });
-      radarOnline = true;
-      syncPlayIcons(false);
-      syncLiveButton(true);
-    } catch (err) {
-      console.error("Radar source switch failed:", err);
-      radarOnline = false;
-      sourceBadge.textContent = "Radar unavailable";
-    } finally {
-      sourceSelect.disabled = false;
-      updateStatus();
-    }
+  sourceSelect?.addEventListener("change", () => {
+    switchSource(sourceSelect.value);
+  });
+
+  sourceButtons?.addEventListener("click", (event) => {
+    const btn = event.target.closest(".source-btn");
+    if (!btn || btn.disabled) return;
+    switchSource(btn.dataset.source);
+  });
+
+  sourceBadge.style.cursor = "pointer";
+  sourceBadge.title = "Click to cycle radar sources";
+  sourceBadge.addEventListener("click", () => {
+    const available = radarSources.filter((s) => s.available);
+    if (!available.length) return;
+    const idx = available.findIndex((s) => s.id === radar.sourceId);
+    const next = available[(idx + 1) % available.length];
+    switchSource(next.id);
   });
 
   slider.addEventListener("input", () => {
@@ -255,17 +352,23 @@ async function main() {
 
   function updateClock() {
     const now = new Date();
-    document.getElementById("local-clock").textContent = now.toLocaleTimeString("en-BE", {
-      timeZone: "Europe/Brussels",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    document.getElementById("local-date").textContent = now.toLocaleDateString("en-BE", {
-      timeZone: "Europe/Brussels",
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
+    document.getElementById("local-clock").textContent = now.toLocaleTimeString(
+      "en-BE",
+      {
+        timeZone: "Europe/Brussels",
+        hour: "2-digit",
+        minute: "2-digit",
+      },
+    );
+    document.getElementById("local-date").textContent = now.toLocaleDateString(
+      "en-BE",
+      {
+        timeZone: "Europe/Brussels",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      },
+    );
   }
   updateClock();
   setInterval(updateClock, 1000);
