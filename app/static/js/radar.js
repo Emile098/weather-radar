@@ -1,4 +1,4 @@
-import { fetchJson } from "./utils.js?v=6";
+import { fetchJson } from "./utils.js?v=7";
 
 const REFRESH_MS = 2 * 60 * 1000;
 const STORAGE_KEY = "belgium-radar-source";

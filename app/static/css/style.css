@@ -218,11 +218,77 @@ button, input { font: inherit; color: inherit; }
   font-size: 0.84rem;
 }
 
+.radar-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+.radar-source-label {
+  flex-shrink: 0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.radar-source-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.radar-source-buttons::-webkit-scrollbar { display: none; }
+
+.source-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.source-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.source-btn.active {
+  color: #06201b;
+  background: var(--accent);
+  box-shadow: 0 6px 18px rgba(86, 194, 176, 0.28);
+}
+
+.source-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .topbar-meta {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-left: auto;
+  margin-left: 0;
+  flex-shrink: 0;
 }
 
 .status-pill {
@@ -573,6 +639,11 @@ button, input { font: inherit; color: inherit; }
   min-width: 148px;
 }
 
+.source-picker.compact {
+  min-width: 132px;
+}
+
+.source-picker span,
 .source-picker label {
   font-size: 0.62rem;
   font-weight: 700;
@@ -922,8 +993,13 @@ button, input { font: inherit; color: inherit; }
     width: 100%;
   }
 
-  .topbar-meta { margin-left: 0; }
-  .layer-toggles { width: 100%; justify-content: flex-start; overflow-x: auto; }
+  .radar-source-bar {
+    order: 4;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .radar-source-label { display: none; }
   .search-hint { display: none; }
   .radar-controls { min-width: calc(100% - 24px); flex-wrap: wrap; }
   .legend { top: 12px; bottom: auto; right: 12px; }
