@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇧🇪</text></svg>">
 </head>
 <body>
@@ -23,6 +23,13 @@
           <p class="subtitle">Live precipitation & lightning</p>
         </div>
       </div>
+      <div class="city-search-wrap">
+        <label class="city-search-label" for="city-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input id="city-search" type="search" placeholder="Search city…" autocomplete="off" spellcheck="false">
+        </label>
+        <div id="city-suggestions" class="city-suggestions" hidden></div>
+      </div>
       <div class="topbar-center">
         <div class="status-pill" id="connection-status">
           <span class="status-dot"></span>
@@ -31,25 +38,22 @@
         <div class="clock" id="local-clock">--:--</div>
       </div>
       <div class="layer-toggles">
-        <label class="toggle-chip active" data-layer="radar">
-          <input type="checkbox" checked hidden>
+        <button type="button" class="toggle-chip active" data-layer="radar" aria-pressed="true">
           <span class="chip-icon">🌧</span> Radar
-        </label>
-        <label class="toggle-chip active" data-layer="lightning">
-          <input type="checkbox" checked hidden>
+        </button>
+        <button type="button" class="toggle-chip active" data-layer="lightning" aria-pressed="true">
           <span class="chip-icon">⚡</span> Lightning
-        </label>
-        <label class="toggle-chip" data-layer="cities">
-          <input type="checkbox" hidden>
+        </button>
+        <button type="button" class="toggle-chip" data-layer="cities" aria-pressed="false">
           <span class="chip-icon">📍</span> Cities
-        </label>
+        </button>
       </div>
     </header>
 
     <aside class="sidebar glass" id="weather-panel">
       <div class="panel-header">
         <h2>Weather</h2>
-        <select id="city-select" class="city-select" aria-label="City"></select>
+        <span class="weather-location" id="weather-location">Brussels</span>
       </div>
       <div class="current-weather" id="current-weather">
         <div class="weather-icon-lg" id="weather-icon">—</div>
@@ -83,7 +87,10 @@
     <main class="map-wrap">
       <div id="map"></div>
       <div class="map-overlay glass radar-controls">
-        <button class="ctrl-btn" id="btn-play" title="Play / Pause" aria-label="Play animation">
+        <button class="ctrl-btn live-btn active" id="btn-live" title="Jump to live radar" aria-label="Live radar">
+          LIVE
+        </button>
+        <button class="ctrl-btn" id="btn-play" title="Replay radar history" aria-label="Replay animation">
           <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
           <svg id="icon-pause" viewBox="0 0 24 24" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z" fill="currentColor"/></svg>
         </button>
@@ -91,7 +98,7 @@
           <input type="range" id="radar-slider" min="0" max="0" value="0" aria-label="Radar timeline">
           <div class="timeline-labels">
             <span id="frame-time">—</span>
-            <span id="frame-index">0 / 0</span>
+            <span id="frame-index">LIVE</span>
           </div>
         </div>
         <div class="opacity-control">
@@ -102,7 +109,7 @@
       <div class="legend glass">
         <div class="legend-title">Lightning age</div>
         <div class="legend-items">
-          <span class="legend-item"><i class="dot white"></i> &lt;2 min</span>
+          <span class="legend-item"><i class="dot white"></i> New / &lt;2 min</span>
           <span class="legend-item"><i class="dot yellow"></i> 2–5 min</span>
           <span class="legend-item"><i class="dot orange"></i> 5–10 min</span>
           <span class="legend-item"><i class="dot red"></i> 10–20 min</span>
@@ -113,6 +120,6 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/app.js?v=3"></script>
 </body>
 </html>

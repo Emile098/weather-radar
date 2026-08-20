@@ -3,7 +3,7 @@ import { fetchJson } from "./utils.js";
 const TILE_SIZE = 512;
 const COLOR_SCHEME = 2;
 const TILE_OPTIONS = "1_1";
-const REFRESH_MS = 5 * 60 * 1000;
+const REFRESH_MS = 2 * 60 * 1000;
 
 export class RadarLayer {
   constructor(map, onFrameChange) {
@@ -15,19 +15,28 @@ export class RadarLayer {
     this.frameIndex = 0;
     this.opacity = 0.75;
     this.visible = true;
-    this.playing = true;
+    this.playing = false;
+    this.liveMode = true;
     this.playTimer = null;
-    this.playDelayMs = 600;
+    this.playDelayMs = 500;
   }
 
-  async load() {
+  get isLive() {
+    return this.liveMode && this.frameIndex === this.frames.length - 1;
+  }
+
+  async load({ keepLive = true } = {}) {
     const data = await fetchJson("/api/rainviewer");
     this.host = data.host;
     const past = data.radar?.past ?? [];
     this.frames = past;
     if (this.frames.length === 0) throw new Error("No radar frames");
-    this.frameIndex = this.frames.length - 1;
-    this.showFrame(this.frameIndex);
+
+    if (keepLive || this.liveMode) {
+      this.goLive();
+    } else {
+      this.showFrame(Math.min(this.frameIndex, this.frames.length - 1));
+    }
     return this.frames.length;
   }
 
@@ -35,13 +44,17 @@ export class RadarLayer {
     return `${this.host}${frame.path}/${TILE_SIZE}/{z}/{x}/{y}/${COLOR_SCHEME}/${TILE_OPTIONS}.png`;
   }
 
-  showFrame(index) {
+  showFrame(index, { fromLive = false } = {}) {
     if (!this.frames.length) return;
     this.frameIndex = Math.max(0, Math.min(index, this.frames.length - 1));
+    if (!fromLive) {
+      this.liveMode = this.frameIndex === this.frames.length - 1;
+    }
     const frame = this.frames[this.frameIndex];
 
     if (this.currentLayer) {
       this.map.removeLayer(this.currentLayer);
+      this.currentLayer = null;
     }
 
     if (this.visible) {
@@ -51,11 +64,18 @@ export class RadarLayer {
         maxNativeZoom: 7,
         maxZoom: 12,
         zIndex: 200,
+        className: "radar-tiles",
       });
       this.currentLayer.addTo(this.map);
     }
 
-    this.onFrameChange?.(this.frameIndex, this.frames.length, frame.time);
+    this.onFrameChange?.(this.frameIndex, this.frames.length, frame.time, this.isLive);
+  }
+
+  goLive() {
+    this.liveMode = true;
+    this.pause();
+    this.showFrame(this.frames.length - 1, { fromLive: true });
   }
 
   setOpacity(value) {
@@ -65,7 +85,7 @@ export class RadarLayer {
 
   setVisible(visible) {
     this.visible = visible;
-    if (visible) this.showFrame(this.frameIndex);
+    if (visible) this.showFrame(this.frameIndex, { fromLive: this.liveMode });
     else if (this.currentLayer) {
       this.map.removeLayer(this.currentLayer);
       this.currentLayer = null;
@@ -73,27 +93,43 @@ export class RadarLayer {
   }
 
   play() {
+    this.liveMode = false;
     this.playing = true;
+    // Start replay from the oldest frame so history is visible.
+    this.showFrame(0);
     this.scheduleNext();
   }
 
   pause() {
     this.playing = false;
-    if (this.playTimer) clearTimeout(this.playTimer);
+    if (this.playTimer) {
+      clearTimeout(this.playTimer);
+      this.playTimer = null;
+    }
   }
 
   togglePlay() {
-    if (this.playing) this.pause();
-    else this.play();
-    return this.playing;
+    if (this.playing) {
+      this.pause();
+      return false;
+    }
+    this.play();
+    return true;
   }
 
   scheduleNext() {
     if (this.playTimer) clearTimeout(this.playTimer);
     if (!this.playing || !this.visible) return;
+
     this.playTimer = setTimeout(() => {
-      const next = (this.frameIndex + 1) % this.frames.length;
-      this.showFrame(next);
+      const last = this.frames.length - 1;
+      if (this.frameIndex >= last) {
+        // Finished history — settle on live instead of looping back in time.
+        this.pause();
+        this.goLive();
+        return;
+      }
+      this.showFrame(this.frameIndex + 1);
       this.scheduleNext();
     }, this.playDelayMs);
   }
@@ -101,11 +137,8 @@ export class RadarLayer {
   startAutoRefresh() {
     setInterval(async () => {
       try {
-        const prevLen = this.frames.length;
-        await this.load();
-        if (this.frames.length !== prevLen) {
-          console.info("Radar: refreshed", this.frames.length, "frames");
-        }
+        const wasLive = this.liveMode && !this.playing;
+        await this.load({ keepLive: wasLive });
       } catch (err) {
         console.warn("Radar refresh failed:", err);
       }
